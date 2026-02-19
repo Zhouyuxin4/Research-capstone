@@ -24,15 +24,12 @@ The system is designed to foreground educational reasoning rather than high-fide
           ↓
 +-------------------+
 |   Decision Engine |
-|  (Rule Evaluation)|
+|  (Rule Evaluation |
+|   Explanation)    |
 +-------------------+
           ↓
 +-------------------+
 |   Output Layer    |
-+-------------------+
-          ↓
-+-------------------+
-| Explanation Layer |
 +-------------------+
 ```
 

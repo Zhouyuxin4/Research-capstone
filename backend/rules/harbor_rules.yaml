@@ -1,0 +1,572 @@
+# =============================================================================
+# Vancouver Maritime Museum — Tugboat Simulation Rule Set
+# =============================================================================
+# Each rule demonstrates a key maritime decision point.
+# Rules are ordered by scenario phase:
+#   1. Open Water Navigation
+#   2. Harbour Entry & Restricted Zones
+#   3. Multi-Agent Interaction (Cargo Ship Escort)
+#   4. Docking Approach
+#   5. Environmental Hazards
+#   6. Emergency Protocols
+#
+# Priority bands:
+#   Emergency   : 90–100
+#   Safety      : 60–89
+#   Navigation  : 30–59
+#   Advisory    : 10–29
+#   Educational : 1–9
+# =============================================================================
+
+rules:
+
+  # ---------------------------------------------------------------------------
+  # PHASE 1 — Open Water Navigation
+  # ---------------------------------------------------------------------------
+
+  - id: "open_water_speed_limit"
+    priority: 35
+    conditions:
+      - left: "environment.zone"
+        operator: "=="
+        right: "open_water"
+      - left: "agents.tugboat.speed"
+        operator: ">"
+        right: 12.0
+    logic: "AND"
+    action:
+      - type: "clamp"
+        target: "agents.tugboat.speed"
+        max_value: 12.0
+      - type: "log"
+        log_level: "info"
+        log_message: "Open water speed limit enforced at 12 knots."
+    explanation_template: >
+      In open water, tugboats are limited to 12 knots to conserve engine fuel
+      and maintain manoeuvrability. Your current speed of {{agents.tugboat.speed}}
+      knots was automatically reduced. This is standard maritime operating procedure.
+    metadata:
+      category: "navigation"
+      tags: ["speed", "open_water", "fuel_efficiency"]
+      educational_focus: "Why do tugboats travel slowly even in open water?"
+
+  - id: "low_visibility_speed_reduction"
+    priority: 62
+    conditions:
+      - left: "environment.visibility"
+        operator: "<"
+        right: 0.5
+      - left: "agents.tugboat.speed"
+        operator: ">"
+        right: 6.0
+    logic: "AND"
+    action:
+      - type: "clamp"
+        target: "agents.tugboat.speed"
+        max_value: 6.0
+      - type: "spawn_event"
+        event_type: "fog_alert"
+        event_payload:
+          visibility: "{{environment.visibility}}"
+          severity: "warning"
+      - type: "log"
+        log_level: "warning"
+        log_message: "Reduced visibility — speed limited to 6 knots."
+    explanation_template: >
+      Visibility has dropped below 500 metres (current: {{environment.visibility}} km).
+      Under maritime law, vessels must reduce speed to a safe level in restricted
+      visibility. The tugboat's speed has been limited to 6 knots so the crew has
+      enough reaction time to avoid unseen obstacles.
+    metadata:
+      category: "safety"
+      tags: ["fog", "visibility", "speed_reduction"]
+      educational_focus: "How do crews navigate safely in fog?"
+
+  # ---------------------------------------------------------------------------
+  # PHASE 2 — Harbour Entry & Restricted Zones
+  # ---------------------------------------------------------------------------
+
+  - id: "harbour_entry_speed_limit"
+    priority: 50
+    conditions:
+      - left: "environment.zone"
+        operator: "=="
+        right: "harbour_entry"
+      - left: "agents.tugboat.speed"
+        operator: ">"
+        right: 8.0
+    logic: "AND"
+    action:
+      - type: "clamp"
+        target: "agents.tugboat.speed"
+        max_value: 8.0
+      - type: "log"
+        log_level: "info"
+        log_message: "Harbour entry zone — speed capped at 8 knots."
+    explanation_template: >
+      Entering the harbour zone requires slowing to 8 knots. Harbour authorities
+      enforce this limit to protect other vessels, dock structures, and shoreline.
+      The wake (waves) created by a fast-moving tugboat can damage small moored
+      boats and make it unsafe for dock workers.
+    metadata:
+      category: "navigation"
+      tags: ["harbour", "zone", "wake_reduction"]
+      educational_focus: "Why do ships slow down entering a harbour?"
+
+  - id: "no_wake_zone"
+    priority: 55
+    conditions:
+      - left: "environment.zone"
+        operator: "=="
+        right: "no_wake_zone"
+      - left: "agents.tugboat.speed"
+        operator: ">"
+        right: 3.0
+    logic: "AND"
+    action:
+      - type: "set"
+        target: "agents.tugboat.speed"
+        value: 3.0
+      - type: "spawn_event"
+        event_type: "no_wake_zone_entered"
+        event_payload:
+          zone: "no_wake_zone"
+          enforced_speed: 3.0
+    explanation_template: >
+      You have entered a No-Wake Zone. Speed is strictly limited to 3 knots.
+      No-Wake Zones exist near marinas, fuel docks, and areas where people
+      are working on or near the water. Even small waves from a slow-moving
+      tugboat can rock boats and cause injuries or damage.
+    metadata:
+      category: "navigation"
+      tags: ["no_wake", "zone", "marina_safety"]
+      educational_focus: "What is a No-Wake Zone and why does it exist?"
+
+  # ---------------------------------------------------------------------------
+  # PHASE 3 — Multi-Agent Interaction (Cargo Ship Escort)
+  # ---------------------------------------------------------------------------
+
+  - id: "escort_proximity_maintain"
+    priority: 45
+    conditions:
+      - left: "global_metrics.tugboat_cargo_distance"
+        operator: ">"
+        right: 80.0
+      - left: "environment.zone"
+        operator: "=="
+        right: "escort_corridor"
+    logic: "AND"
+    action:
+      - type: "recommend"
+        target: "agents.tugboat.speed"
+        value: "{{agents.cargo_ship.speed + 2.0}}"
+      - type: "log"
+        log_level: "info"
+        log_message: "Tugboat drifting too far from cargo ship — closing gap."
+    explanation_template: >
+      During an escort, the tugboat must stay within 80 metres of the cargo ship.
+      The cargo ship ({{agents.cargo_ship.id}}) is currently {{global_metrics.tugboat_cargo_distance}}
+      metres away. The tugboat's speed has been adjusted upward to close the gap.
+      A tight escort formation gives the tugboat maximum ability to intervene
+      if the cargo ship loses control.
+    metadata:
+      category: "navigation"
+      tags: ["escort", "multi-agent", "formation"]
+      educational_focus: "Why must a tugboat stay close to the ship it is escorting?"
+
+  - id: "escort_collision_risk"
+    priority: 80
+    conditions:
+      - left: "global_metrics.tugboat_cargo_distance"
+        operator: "<"
+        right: 15.0
+      - left: "agents.tugboat.speed"
+        operator: ">"
+        right: 2.0
+    logic: "AND"
+    action:
+      - type: "set"
+        target: "agents.tugboat.speed"
+        value: 0.0
+      - type: "spawn_event"
+        event_type: "escort_collision_risk"
+        event_payload:
+          distance: "{{global_metrics.tugboat_cargo_distance}}"
+          severity: "critical"
+      - type: "log"
+        log_level: "error"
+        log_message: "CRITICAL: Tugboat and cargo ship too close — emergency stop."
+    explanation_template: >
+      DANGER: The tugboat is only {{global_metrics.tugboat_cargo_distance}} metres
+      from the cargo ship — well below the safe minimum of 15 metres.
+      Emergency stop activated immediately. At close range, even a small collision
+      between a tugboat and a large vessel can cause serious structural damage
+      and risk capsizing the tugboat.
+    metadata:
+      category: "safety"
+      tags: ["collision", "escort", "emergency_stop", "multi-agent"]
+      educational_focus: "What happens when two vessels get dangerously close?"
+
+  - id: "cargo_ship_speed_mismatch"
+    priority: 40
+    conditions:
+      - left: "agents.tugboat.speed"
+        operator: "<"
+        right: "agents.cargo_ship.speed"
+      - left: "environment.zone"
+        operator: "=="
+        right: "escort_corridor"
+    logic: "AND"
+    action:
+      - type: "recommend"
+        target: "agents.tugboat.speed"
+        value: "{{agents.cargo_ship.speed}}"
+      - type: "log"
+        log_level: "warning"
+        log_message: "Tugboat slower than cargo ship in escort corridor — speed mismatch."
+    explanation_template: >
+      The cargo ship is moving faster than the tugboat. In an escort, the tugboat
+      must always match or slightly exceed the escorted vessel's speed. If the
+      tugboat falls behind, it loses the ability to guide the cargo ship through
+      narrow harbour channels or respond to emergencies.
+    metadata:
+      category: "navigation"
+      tags: ["escort", "speed_matching", "multi-agent"]
+      educational_focus: "Why must the tugboat keep pace with the cargo ship?"
+
+  # ---------------------------------------------------------------------------
+  # PHASE 4 — Docking Approach
+  # ---------------------------------------------------------------------------
+
+  - id: "docking_approach_speed"
+    priority: 58
+    conditions:
+      - left: "environment.zone"
+        operator: "=="
+        right: "docking_zone"
+      - left: "agents.tugboat.speed"
+        operator: ">"
+        right: 2.0
+    logic: "AND"
+    action:
+      - type: "clamp"
+        target: "agents.tugboat.speed"
+        max_value: 2.0
+      - type: "spawn_event"
+        event_type: "docking_sequence_start"
+        event_payload:
+          phase: "approach"
+          max_speed: 2.0
+    explanation_template: >
+      The tugboat is entering the docking zone. Maximum speed is now 2 knots.
+      Precise, slow manoeuvring is essential during docking — the tugboat must
+      align exactly with the berth. Too much speed makes it impossible to correct
+      the approach angle, risking damage to the dock or the vessel itself.
+    metadata:
+      category: "navigation"
+      tags: ["docking", "precision", "approach"]
+      educational_focus: "Why does docking require such slow, careful movement?"
+
+  - id: "docking_heading_alignment"
+    priority: 56
+    conditions:
+      - left: "environment.zone"
+        operator: "=="
+        right: "docking_zone"
+      - left: "global_metrics.heading_error"
+        operator: ">"
+        right: 15.0
+    logic: "AND"
+    action:
+      - type: "recommend"
+        target: "agents.tugboat.heading"
+        value: "{{environment.berth_heading}}"
+      - type: "log"
+        log_level: "warning"
+        log_message: "Heading misaligned with berth — correction recommended."
+    explanation_template: >
+      The tugboat's current heading is {{global_metrics.heading_error}} degrees
+      off from the berth alignment (target: {{environment.berth_heading}}°).
+      A heading error greater than 15° during approach makes it very difficult
+      to dock safely. The helmsman should correct course before getting closer
+      to the dock.
+    metadata:
+      category: "navigation"
+      tags: ["docking", "heading", "alignment"]
+      educational_focus: "Why is precise heading alignment critical during docking?"
+
+  - id: "docking_final_stop"
+    priority: 65
+    conditions:
+      - left: "global_metrics.distance_to_berth"
+        operator: "<"
+        right: 5.0
+      - left: "agents.tugboat.speed"
+        operator: ">"
+        right: 0.5
+    logic: "AND"
+    action:
+      - type: "set"
+        target: "agents.tugboat.speed"
+        value: 0.0
+      - type: "spawn_event"
+        event_type: "docking_complete"
+        event_payload:
+          berth_distance: "{{global_metrics.distance_to_berth}}"
+    explanation_template: >
+      The tugboat is {{global_metrics.distance_to_berth}} metres from the berth —
+      full stop initiated. At this distance, any remaining speed would cause the
+      vessel to strike the dock. Lines are now deployed to secure the tugboat.
+      Successful docking!
+    metadata:
+      category: "navigation"
+      tags: ["docking", "final_approach", "berthing"]
+      educational_focus: "What happens in the final seconds of a docking procedure?"
+
+  # ---------------------------------------------------------------------------
+  # PHASE 5 — Environmental Hazards
+  # ---------------------------------------------------------------------------
+
+  - id: "high_wind_heading_restriction"
+    priority: 70
+    conditions:
+      - left: "environment.wind_speed"
+        operator: ">"
+        right: 30.0
+      - left: "environment.zone"
+        operator: "=="
+        right: "docking_zone"
+    logic: "AND"
+    action:
+      - type: "recommend"
+        target: "agents.tugboat.heading"
+        value: "{{environment.wind_direction + 90}}"
+      - type: "spawn_event"
+        event_type: "high_wind_advisory"
+        event_payload:
+          wind_speed: "{{environment.wind_speed}}"
+          wind_direction: "{{environment.wind_direction}}"
+      - type: "log"
+        log_level: "warning"
+        log_message: "High wind in docking zone — heading correction advised."
+    explanation_template: >
+      Wind speed is {{environment.wind_speed}} knots — above the safe threshold
+      of 30 knots for docking operations. Strong crosswinds can push the tugboat
+      sideways during approach. The recommended heading adjustment compensates
+      for wind drift, keeping the vessel on a straight path toward the berth.
+    metadata:
+      category: "safety"
+      tags: ["wind", "weather", "docking_hazard"]
+      educational_focus: "How do tugboat captains compensate for strong winds?"
+
+  - id: "fog_event_response"
+    priority: 72
+    conditions:
+      - left: "events.fog_alert"
+        operator: "=="
+        right: true
+      - left: "environment.zone"
+        operator: "=="
+        right: "harbour_entry"
+    logic: "AND"
+    action:
+      - type: "set"
+        target: "agents.tugboat.speed"
+        value: 4.0
+      - type: "trigger_rule"
+        rule_id: "request_harbour_guidance"
+      - type: "log"
+        log_level: "warning"
+        log_message: "Fog alert in harbour entry — speed set to 4 knots, guidance requested."
+    explanation_template: >
+      A fog alert is active in the harbour entry zone. Speed has been reduced to
+      4 knots and harbour guidance has been requested. Radar and radio contact
+      with harbour control are now essential — the crew cannot rely solely on
+      visual navigation in these conditions.
+    metadata:
+      category: "safety"
+      tags: ["fog", "harbour", "radar", "rule_chaining"]
+      educational_focus: "How do vessels navigate safely in fog without GPS or visual cues?"
+
+  - id: "request_harbour_guidance"
+    priority: 68
+    conditions:
+      - left: "global_metrics.guidance_requested"
+        operator: "=="
+        right: false
+      - left: "environment.visibility"
+        operator: "<"
+        right: 0.3
+    logic: "AND"
+    action:
+      - type: "set"
+        target: "global_metrics.guidance_requested"
+        value: 1.0
+      - type: "log"
+        log_level: "info"
+        log_message: "Harbour guidance requested via VHF radio."
+      - type: "spawn_event"
+        event_type: "guidance_request_sent"
+        event_payload:
+          vessel: "tugboat"
+          channel: "VHF_16"
+    explanation_template: >
+      Harbour guidance has been requested on VHF Channel 16. In restricted
+      visibility, vessels must establish radio contact with Harbour Control.
+      Harbour Control can provide radar-assisted guidance, directing the vessel
+      using compass bearings and distance readings to safely navigate to berth.
+    metadata:
+      category: "safety"
+      tags: ["fog", "radio", "harbour_control", "chained_rule"]
+      educational_focus: "How does radio communication support safe navigation?"
+
+  # ---------------------------------------------------------------------------
+  # PHASE 6 — Emergency Protocols
+  # ---------------------------------------------------------------------------
+
+  - id: "engine_failure_detection"
+    priority: 95
+    conditions:
+      - left: "global_metrics.engine_status"
+        operator: "=="
+        right: 0.0
+      - left: "agents.tugboat.speed"
+        operator: ">"
+        right: 0.0
+    logic: "AND"
+    action:
+      - type: "set"
+        target: "global_metrics.collision_risk"
+        value: 1.0
+      - type: "spawn_event"
+        event_type: "engine_failure"
+        event_payload:
+          agent_id: "tugboat"
+          severity: "critical"
+      - type: "trigger_rule"
+        rule_id: "emergency_anchor"
+      - type: "log"
+        log_level: "error"
+        log_message: "ENGINE FAILURE — initiating emergency anchor protocol."
+    explanation_template: >
+      EMERGENCY: Engine failure detected while the tugboat is still moving.
+      Without engine power, the tugboat cannot steer or slow down by itself.
+      Emergency anchor deployment has been triggered. The anchor must be
+      deployed quickly to prevent the vessel from drifting into other ships
+      or harbour structures.
+    metadata:
+      category: "emergency"
+      tags: ["engine_failure", "anchor", "emergency", "rule_chaining"]
+      educational_focus: "What do sailors do when an engine fails at sea?"
+
+  - id: "emergency_anchor"
+    priority: 98
+    conditions:
+      - left: "global_metrics.collision_risk"
+        operator: "=="
+        right: 1.0
+      - left: "global_metrics.anchor_deployed"
+        operator: "=="
+        right: 0.0
+    logic: "AND"
+    action:
+      - type: "set"
+        target: "global_metrics.anchor_deployed"
+        value: 1.0
+      - type: "set"
+        target: "agents.tugboat.speed"
+        value: 0.0
+      - type: "spawn_event"
+        event_type: "anchor_deployed"
+        event_payload:
+          vessel: "tugboat"
+          reason: "emergency_engine_failure"
+      - type: "log"
+        log_level: "error"
+        log_message: "Emergency anchor deployed — vessel halted."
+    explanation_template: >
+      Emergency anchor has been deployed. The tugboat is now stationary.
+      All nearby vessels have been notified via VHF radio (Mayday signal).
+      The crew will now await tow assistance. This chain of decisions —
+      engine failure → collision risk → anchor deployment — demonstrates
+      how maritime emergency protocols are designed to halt danger at each step.
+    metadata:
+      category: "emergency"
+      tags: ["anchor", "mayday", "chained_rule", "emergency_stop"]
+      educational_focus: "How does an emergency anchor work, and when is it used?"
+
+  - id: "collision_risk_multi_vessel"
+    priority: 90
+    conditions:
+      - left: "global_metrics.tugboat_cargo_distance"
+        operator: "<"
+        right: 10.0
+      - left: "agents.tugboat.speed"
+        operator: ">"
+        right: 1.0
+      - left: "agents.cargo_ship.speed"
+        operator: ">"
+        right: 1.0
+    logic: "AND"
+    action:
+      - type: "set"
+        target: "agents.tugboat.speed"
+        value: 0.0
+      - type: "set"
+        target: "agents.cargo_ship.speed"
+        value: 0.0
+      - type: "set"
+        target: "global_metrics.collision_risk"
+        value: 1.0
+      - type: "spawn_event"
+        event_type: "multi_vessel_collision_avoidance"
+        event_payload:
+          agent_1: "tugboat"
+          agent_2: "cargo_ship"
+          distance: "{{global_metrics.tugboat_cargo_distance}}"
+          severity: "critical"
+      - type: "log"
+        log_level: "error"
+        log_message: "COLLISION RISK: Both vessels stopped. Distance below 10m."
+    explanation_template: >
+      CRITICAL: Both the tugboat and cargo ship have been stopped automatically.
+      At {{global_metrics.tugboat_cargo_distance}} metres apart, a collision is
+      imminent if either vessel continues moving. This rule affects BOTH agents
+      simultaneously — demonstrating how a single hazardous condition can require
+      coordinated decisions across multiple vessels in a harbour system.
+    metadata:
+      category: "emergency"
+      tags: ["collision", "multi-agent", "simultaneous_action", "emergency"]
+      educational_focus: "How do harbour systems coordinate emergency stops across multiple vessels?"
+
+  # ---------------------------------------------------------------------------
+  # EDUCATIONAL MOMENTS — low priority, always fire for museum context
+  # ---------------------------------------------------------------------------
+
+  - id: "educational_docking_complete"
+    priority: 2
+    conditions:
+      - left: "events.docking_complete"
+        operator: "=="
+        right: true
+    logic: "AND"
+    action:
+      - type: "log"
+        log_level: "info"
+        log_message: "Docking complete — educational summary triggered."
+      - type: "spawn_event"
+        event_type: "educational_summary"
+        event_payload:
+          scenario: "docking"
+          rules_triggered: "{{global_metrics.rules_triggered_count}}"
+          decisions_made: "{{global_metrics.decision_count}}"
+    explanation_template: >
+      Docking complete! During this scenario, {{global_metrics.rules_triggered_count}}
+      rules were activated and {{global_metrics.decision_count}} automated decisions
+      were made on your behalf. Every speed limit, heading adjustment, and stop
+      command you saw was the result of a specific rule responding to the
+      tugboat's state and environment — this is how real maritime decision systems work.
+    metadata:
+      category: "educational"
+      tags: ["summary", "museum", "engagement", "recap"]
+      educational_focus: "End-of-scenario summary for museum visitors."

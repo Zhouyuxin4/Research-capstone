@@ -6,7 +6,7 @@ from .enums import ActionType
 class Action(BaseModel):
     """Enhanced action supporting complex operations and rule chaining"""
     type: ActionType
-    target: str  # e.g. "agents.tugboat.speed" or "global_metrics.collision_risk"
+    target: Optional[str] = None  # e.g. "agents.tugboat.speed" or "global_metrics.collision_risk"
     value: Optional[Any] = None  # Can be float, str, bool, etc.
     min_value: Optional[float] = None  # For CLAMP action
     max_value: Optional[float] = None  # For CLAMP action

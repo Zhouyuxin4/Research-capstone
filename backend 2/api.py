@@ -29,7 +29,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Path, Body
+# from fastapi import FastAPI, HTTPException, Path, Body
+from fastapi import FastAPI, HTTPException, Path as ApiPath, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -270,7 +271,7 @@ def create_session(body: CreateSessionRequest = Body(default=CreateSessionReques
 
 
 @app.delete("/sessions/{session_id}", tags=["session"])
-def end_session(session_id: str = Path(...)):
+def end_session(session_id: str = ApiPath(...)):
     """Destroy a session and free its memory."""
     sessions.delete(session_id)
     return {"deleted": session_id}
@@ -282,7 +283,7 @@ def end_session(session_id: str = Path(...)):
 
 @app.post("/sessions/{session_id}/start", tags=["simulation"])
 def start_session(
-    session_id: str = Path(...),
+    session_id: str = ApiPath(...),
     body: CreateSessionRequest = Body(default=CreateSessionRequest()),
 ):
     """
@@ -318,7 +319,7 @@ def start_session(
     tags=["simulation"],
 )
 def step(
-    session_id: str = Path(...),
+    session_id: str = ApiPath(...),
     body: StepRequest = Body(default=StepRequest()),
 ):
     """
@@ -373,7 +374,7 @@ def step(
 
 
 @app.post("/sessions/{session_id}/reset", tags=["simulation"])
-def reset_session(session_id: str = Path(...)):
+def reset_session(session_id: str = ApiPath(...)):
     """Reset the session back to its initial state (same scenario)."""
     try:
         session = sessions.reset(session_id)
@@ -388,7 +389,7 @@ def reset_session(session_id: str = Path(...)):
 # ------------------------------------------------------------------
 
 @app.get("/sessions/{session_id}/state", tags=["inspection"])
-def get_state(session_id: str = Path(...)):
+def get_state(session_id: str = ApiPath(...)):
     """Return the current SystemState as JSON."""
     try:
         session = sessions.require(session_id)
@@ -403,7 +404,7 @@ def get_state(session_id: str = Path(...)):
     response_model=HistoryResponse,
     tags=["inspection"],
 )
-def get_history(session_id: str = Path(...)):
+def get_history(session_id: str = ApiPath(...)):
     """
     Return all past StateSnapshots for this session.
     Unity can use this for the educational rewind feature.
@@ -421,7 +422,7 @@ def get_history(session_id: str = Path(...)):
 
 
 @app.get("/sessions/{session_id}/rules", tags=["inspection"])
-def get_rules(session_id: str = Path(...)):
+def get_rules(session_id: str = ApiPath(...)):
     """
     Return a summary of all loaded rules.
     Useful for Unity to build a dynamic rules-list panel.

@@ -22,11 +22,15 @@ Run with:
     uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import json
 import logging
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Path, Body
+# from fastapi import FastAPI, HTTPException, Path, Body
+from fastapi import FastAPI, HTTPException, Path as ApiPath, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -58,6 +62,10 @@ app.add_middleware(
 )
 
 sessions = SessionManager()
+
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+DECISION_LOG_FILE = LOG_DIR / "decision_log.jsonl"
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +200,31 @@ def _explanation_to_out(exp) -> ExplanationOut:
     )
 
 
+def _write_decision_log(
+    session_id: str,
+    scenario: str,
+    user_input: UserInput,
+    state_before: SystemState,
+    state_after: SystemState,
+    explanations: List[ExplanationOut],
+    rules_triggered: List[str],
+) -> None:
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "session_id": session_id,
+        "scenario": scenario,
+        "time_step": state_after.time_step,
+        "input": user_input.model_dump(),
+        "state_before": state_before.model_dump(),
+        "state_after": state_after.model_dump(),
+        "rules_triggered": rules_triggered,
+        "explanations": [exp.model_dump() for exp in explanations],
+    }
+
+    with DECISION_LOG_FILE.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -238,7 +271,7 @@ def create_session(body: CreateSessionRequest = Body(default=CreateSessionReques
 
 
 @app.delete("/sessions/{session_id}", tags=["session"])
-def end_session(session_id: str = Path(...)):
+def end_session(session_id: str = ApiPath(...)):
     """Destroy a session and free its memory."""
     sessions.delete(session_id)
     return {"deleted": session_id}
@@ -250,7 +283,7 @@ def end_session(session_id: str = Path(...)):
 
 @app.post("/sessions/{session_id}/start", tags=["simulation"])
 def start_session(
-    session_id: str = Path(...),
+    session_id: str = ApiPath(...),
     body: CreateSessionRequest = Body(default=CreateSessionRequest()),
 ):
     """
@@ -286,7 +319,7 @@ def start_session(
     tags=["simulation"],
 )
 def step(
-    session_id: str = Path(...),
+    session_id: str = ApiPath(...),
     body: StepRequest = Body(default=StepRequest()),
 ):
     """
@@ -309,21 +342,39 @@ def step(
     )
 
     try:
+        state_before = session.state.model_copy(deep=True)
+    except AttributeError:
+        state_before = session.state.copy(deep=True)
+
+    try:
         session.state, explanations = session.engine.step(session.state, user_input)
     except Exception as exc:
         logger.exception("Error during step in session %s", session_id)
         raise HTTPException(status_code=500, detail=str(exc))
 
+    explanation_out = [_explanation_to_out(e) for e in explanations]
+    rules_triggered = [e.rule_id for e in explanations if e.triggered]
+
+    _write_decision_log(
+        session_id=session_id,
+        scenario=session.scenario,
+        user_input=user_input,
+        state_before=state_before,
+        state_after=session.state,
+        explanations=explanation_out,
+        rules_triggered=rules_triggered,
+    )
+
     return StepResponse(
         time_step=session.state.time_step,
         state=session.state.model_dump(),
-        explanations=[_explanation_to_out(e) for e in explanations],
-        rules_triggered=[e.rule_id for e in explanations if e.triggered],
+        explanations=explanation_out,
+        rules_triggered=rules_triggered,
     )
 
 
 @app.post("/sessions/{session_id}/reset", tags=["simulation"])
-def reset_session(session_id: str = Path(...)):
+def reset_session(session_id: str = ApiPath(...)):
     """Reset the session back to its initial state (same scenario)."""
     try:
         session = sessions.reset(session_id)
@@ -338,7 +389,7 @@ def reset_session(session_id: str = Path(...)):
 # ------------------------------------------------------------------
 
 @app.get("/sessions/{session_id}/state", tags=["inspection"])
-def get_state(session_id: str = Path(...)):
+def get_state(session_id: str = ApiPath(...)):
     """Return the current SystemState as JSON."""
     try:
         session = sessions.require(session_id)
@@ -353,7 +404,7 @@ def get_state(session_id: str = Path(...)):
     response_model=HistoryResponse,
     tags=["inspection"],
 )
-def get_history(session_id: str = Path(...)):
+def get_history(session_id: str = ApiPath(...)):
     """
     Return all past StateSnapshots for this session.
     Unity can use this for the educational rewind feature.
@@ -371,7 +422,7 @@ def get_history(session_id: str = Path(...)):
 
 
 @app.get("/sessions/{session_id}/rules", tags=["inspection"])
-def get_rules(session_id: str = Path(...)):
+def get_rules(session_id: str = ApiPath(...)):
     """
     Return a summary of all loaded rules.
     Useful for Unity to build a dynamic rules-list panel.

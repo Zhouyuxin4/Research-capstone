@@ -23,6 +23,7 @@ import logging
 import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
+import math
 
 from models.state import AgentState, EnvironmentState, StateSnapshot, SystemState
 from models.rule import Condition, Rule
@@ -161,6 +162,10 @@ class RuleEngine:
         if user_input:
             state = self._apply_user_input(state, user_input)
 
+        # Advance simple kinematics so speed/heading affect position.
+        # Without this, a connected frontend will appear "stuck" because backend positions never change.
+        state = self._advance_simulation(state, dt_seconds=1.0)
+
         # Evaluate every rule → collect (rule, condition_evals) for triggered ones
         triggered: List[Tuple[Rule, List[ConditionEvaluation]]] = []
         for rule in self.rules:
@@ -218,6 +223,53 @@ class RuleEngine:
         state = _copy(state, history=list(state.history) + [snapshot])
 
         return state, all_explanations
+
+    def _advance_simulation(self, state: SystemState, dt_seconds: float = 1.0) -> SystemState:
+        """
+        Minimal motion integration for the museum prototype.
+
+        Coordinate convention (matches the original frontend prototype):
+          - heading 90° -> +X (east)
+          - heading 0°  -> -Y (north)
+        """
+        agents = dict(state.agents)
+
+        def advance_agent(a: AgentState) -> AgentState:
+            # speed is stored in knots in scenarios; convert to m/s
+            v = float(a.speed) * 0.514444
+            rad = float(a.heading) * math.pi / 180.0
+            dx = v * math.sin(rad) * dt_seconds
+            dy = -v * math.cos(rad) * dt_seconds
+            return _copy(a, position_x=float(a.position_x) + dx, position_y=float(a.position_y) + dy)
+
+        if "tugboat" in agents:
+            agents["tugboat"] = advance_agent(agents["tugboat"])
+        if "cargo_ship" in agents:
+            agents["cargo_ship"] = advance_agent(agents["cargo_ship"])
+
+        # Update common derived metrics used by rules/UI
+        metrics = dict(state.global_metrics)
+        try:
+            t = agents.get("tugboat")
+            c = agents.get("cargo_ship")
+            if t and c:
+                dist = math.sqrt((t.position_x - c.position_x) ** 2 + (t.position_y - c.position_y) ** 2)
+                metrics["tugboat_cargo_distance"] = float(dist)
+        except Exception:
+            pass
+
+        # Update heading_error if berth_heading present
+        try:
+            berth = state.environment.berth_heading
+            t = agents.get("tugboat")
+            if berth is not None and t is not None:
+                # smallest signed difference in degrees
+                diff = (float(t.heading) - float(berth) + 180.0) % 360.0 - 180.0
+                metrics["heading_error"] = float(abs(diff))
+        except Exception:
+            pass
+
+        return _copy(state, agents=agents, global_metrics=metrics)
 
     # =========================================================================
     # 3. Rule Evaluation

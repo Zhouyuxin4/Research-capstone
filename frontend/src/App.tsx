@@ -23,13 +23,14 @@ import { makeLocalState } from "./localState";
 import { advanceNpcVessel } from "./npcSteer";
 import { pruneAndSpawnEphemeralBoats } from "./trafficSpawn";
 import { render } from "./renderer";
+import { renderFPV } from "./fpvRenderer";
 import { ControlPanel } from "./components/ControlPanel";
 import { ExplanationPanel } from "./components/ExplanationPanel";
 import { PortCompleteModal } from "./components/PortCompleteModal";
 import { TopBar } from "./components/TopBar";
 import { useBackendPolling } from "./hooks/useBackendPolling";
 import { useKeyboardControls } from "./hooks/useKeyboardControls";
-import type { BackendState, ExplanationOut, LocalState, LocalVessel } from "./types";
+import type { BackendState, CollisionParticle, ExplanationOut, LocalState, LocalVessel } from "./types";
 
 const Api = createApiClient();
 const EXPLANATION_HOLD_MS = 7000;
@@ -51,6 +52,8 @@ export default function App() {
   const rampRevRef = useRef(0);
   const passiveScoreAccRef = useRef(0);
   const trafficSpawnAccRef = useRef(0);
+  const shakeRef = useRef({ x: 0, y: 0, t: 0 });
+  const particleIdRef = useRef(0);
 
   const [scenario, setScenario] = useState("default");
   const [weather, setWeather] = useState<WeatherKey>("clear");
@@ -61,12 +64,30 @@ export default function App() {
   const [score, setScore] = useState(0);
   const rudderUiRef = useRef({ lastSetAt: 0, lastVal: 0 });
   const [finalScore, setFinalScore] = useState<number | null>(null);
+  const [fpv, setFpv] = useState(false);
+  const fpvRef = useRef(false);
   const [liveHud, setLiveHud] = useState({
     speed: 0,
     heading: 0,
     zone: "open_water",
     throttleCap: 12,
   });
+
+  const toggleFpv = useCallback(() => {
+    setFpv((v) => {
+      fpvRef.current = !v;
+      return !v;
+    });
+  }, []);
+
+  // 'V' key toggles first-person / top-down view
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === "v") toggleFpv();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [toggleFpv]);
 
   const resetRaceFlags = useCallback(() => {
     raceCompleteRef.current = false;
@@ -180,7 +201,8 @@ export default function App() {
       ls.time += 0.016 * dt;
 
       if (raceCompleteRef.current) {
-        render(ctx, ls, weather);
+        if (fpvRef.current) renderFPV(ctx, ls, weather, shakeRef.current);
+        else render(ctx, ls, weather, shakeRef.current);
         const nowMs = performance.now();
         if (nowMs - teleUiRef.current.lastSetAt > 120) {
           teleUiRef.current.lastSetAt = nowMs;
@@ -285,6 +307,19 @@ export default function App() {
       else if (tx < PATH_END_X) ls.zone = "channel";
       else ls.zone = "port";
 
+      // Escort ship: steer toward the tug, maintain ~90px following distance
+      {
+        const exDx = ls.tug.x - ls.escort.x;
+        const exDy = ls.tug.y - ls.escort.y;
+        const exDist = Math.sqrt(exDx * exDx + exDy * exDy);
+        if (exDist > 5) {
+          ls.escort.targetHeading = ((Math.atan2(exDx, -exDy) * 180) / Math.PI + 360) % 360;
+        }
+        const speedFactor = exDist > 90 ? 1.12 : exDist < 45 ? 0.65 : 1.0;
+        ls.escort.speed = ls.tug.speed * speedFactor;
+      }
+      advanceNpcVessel(ls.escort, dt, { k: K2PX, turnRate: 2.2 });
+
       advanceNpcVessel(ls.cargo, dt, { k: 0.3, turnRate: 0.92 });
       advanceNpcVessel(ls.ferry, dt, { k: 0.35, turnRate: 1.02 });
       ls.fishers.forEach((f) => advanceNpcVessel(f, dt, { k: 0.35, turnRate: 1.12 }));
@@ -304,9 +339,33 @@ export default function App() {
       };
       const tugx = ls.tug.x;
       const tugy = ls.tug.y;
+      // Decay camera shake
+      if (shakeRef.current.t > 0) {
+        shakeRef.current.t = Math.max(0, shakeRef.current.t - dt * 0.06);
+        const mag = shakeRef.current.t * 14;
+        shakeRef.current.x = (Math.random() - 0.5) * mag;
+        shakeRef.current.y = (Math.random() - 0.5) * mag;
+      } else {
+        shakeRef.current.x = 0;
+        shakeRef.current.y = 0;
+      }
+
+      // Decay screen flash
+      if (ls.screenFlash > 0) ls.screenFlash = Math.max(0, ls.screenFlash - dt * 0.055);
+
+      // Update collision particles
+      ls.collisionParticles = ls.collisionParticles.filter((p) => {
+        p.life = Math.min(1, p.life + p.decay * dt);
+        p.x += p.vx * dt * 60;
+        p.y += p.vy * dt * 60;
+        if (p.type === "debris") p.vy += 0.04 * dt; // gravity
+        return p.life < 1;
+      });
+
       if (collisionCdRef.current > 0) collisionCdRef.current = Math.max(0, collisionCdRef.current - dt * 0.055);
       else {
         const candidates: { o: LocalVessel; r: number }[] = [
+          // escort is excluded — it is towed by the tug and cannot be sunk by collision
           { o: ls.cargo, r: 52 },
           { o: ls.ferry, r: 52 },
           ...ls.fishers.map((f) => ({ o: f, r: 38 })),
@@ -319,6 +378,57 @@ export default function App() {
             o.sinkT = 0;
             collisionCdRef.current = 0.85;
             setScore((s) => Math.max(0, s - 15));
+
+            // Spawn collision particles at impact point (midpoint between tug and hit ship)
+            const cx = (tugx + o.x) / 2;
+            const cy = (tugy + o.y) / 2;
+            const newParticles: CollisionParticle[] = [];
+            // Water splash drops
+            for (let i = 0; i < 18; i++) {
+              const angle = Math.random() * Math.PI * 2;
+              const speed = 0.8 + Math.random() * 2.8;
+              particleIdRef.current += 1;
+              newParticles.push({
+                id: particleIdRef.current,
+                x: cx + (Math.random() - 0.5) * 16,
+                y: cy + (Math.random() - 0.5) * 16,
+                vx: Math.sin(angle) * speed,
+                vy: -Math.abs(Math.cos(angle)) * speed - 0.5,
+                life: 0,
+                decay: 0.9 + Math.random() * 0.6,
+                r: 2 + Math.random() * 5,
+                type: "splash",
+              });
+            }
+            // Debris chunks
+            for (let i = 0; i < 8; i++) {
+              const angle = Math.random() * Math.PI * 2;
+              const speed = 0.4 + Math.random() * 1.6;
+              particleIdRef.current += 1;
+              newParticles.push({
+                id: particleIdRef.current,
+                x: cx + (Math.random() - 0.5) * 24,
+                y: cy + (Math.random() - 0.5) * 24,
+                vx: Math.sin(angle) * speed,
+                vy: -Math.abs(Math.cos(angle)) * speed * 0.8,
+                life: 0,
+                decay: 0.4 + Math.random() * 0.4,
+                r: 3 + Math.random() * 6,
+                type: "debris",
+              });
+            }
+            // Foam ring (single large expanding ring)
+            particleIdRef.current += 1;
+            newParticles.push({
+              id: particleIdRef.current,
+              x: cx, y: cy, vx: 0, vy: 0,
+              life: 0, decay: 0.7,
+              r: 20,
+              type: "foam",
+            });
+            ls.collisionParticles.push(...newParticles);
+            ls.screenFlash = 1;
+            shakeRef.current.t = 1;
             break;
           }
         }
@@ -358,7 +468,8 @@ export default function App() {
         }
       }
 
-      render(ctx, ls, weather);
+      if (fpvRef.current) renderFPV(ctx, ls, weather, shakeRef.current);
+      else render(ctx, ls, weather, shakeRef.current);
       const nowMs = performance.now();
       const rounded = Math.round(ls.tug.rudder);
       if ((rounded !== rudderUiRef.current.lastVal && nowMs - rudderUiRef.current.lastSetAt > 120) || nowMs - rudderUiRef.current.lastSetAt > 300) {
@@ -401,9 +512,11 @@ export default function App() {
         scenario={scenario}
         weather={weather}
         score={score}
+        fpv={fpv}
         onScenario={handleScenario}
         onWeather={setWeather}
         onReplay={handleReplay}
+        onToggleFpv={toggleFpv}
       />
 
       <div className="panel canvasWrap" style={{ position: "relative" }}>

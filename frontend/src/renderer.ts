@@ -11,8 +11,11 @@ import {
 } from "./constants";
 import type { LocalState } from "./types";
 
-export function render(ctx: CanvasRenderingContext2D, ls: LocalState, weather: WeatherKey) {
+export function render(ctx: CanvasRenderingContext2D, ls: LocalState, weather: WeatherKey, shake = { x: 0, y: 0 }) {
   const w = WEATHER_CFG[weather] ?? WEATHER_CFG.clear;
+  // Camera shake
+  ctx.save();
+  ctx.translate(shake.x, shake.y);
   // Horizon: a bit lower → more water area below (longer “sea” on screen)
   const horizY = CH * 0.36;
   const toS = (wx: number, wy: number) => ({ x: wx - ls.cam.x + CW / 2, y: wy - ls.cam.y + CH / 2 });
@@ -318,6 +321,196 @@ export function render(ctx: CanvasRenderingContext2D, ls: LocalState, weather: W
 
   drawShip(ls.cargo.x, ls.cargo.y, ls.cargo.heading, 40, 17, "#3a5a78", "#4a6a88", "", ls.cargo.speed, ls.cargo.sinkT, false);
   drawShip(ls.ferry.x, ls.ferry.y, ls.ferry.heading, 32, 14, "#5a7a9a", "#6a8aaa", "", ls.ferry.speed, ls.ferry.sinkT, false);
+
+  // ── Detailed escort / towed cargo ship ──────────────────────────
+  {
+    const { x: esx, y: esy } = toS(ls.escort.x, ls.escort.y);
+    if (esx > -100 && esx < CW + 100 && esy > horizY - 10 && esy < CH + 120) {
+      ctx.save();
+      ctx.translate(esx, esy);
+      ctx.rotate((ls.escort.heading * Math.PI) / 180);
+
+      // Wake
+      if (ls.escort.speed > 0.3) {
+        const wk = ctx.createRadialGradient(0, 26, 2, 0, 26, 52);
+        wk.addColorStop(0, "rgba(255,255,255,0.16)");
+        wk.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = wk;
+        ctx.beginPath();
+        ctx.moveTo(0, 22);
+        ctx.lineTo(-36, 70);
+        ctx.lineTo(36, 70);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Main hull — long, flat-sided bulk carrier
+      const hullGrad = ctx.createLinearGradient(-20, -48, 20, 32);
+      hullGrad.addColorStop(0, "#28383a");
+      hullGrad.addColorStop(0.4, "#2e4244");
+      hullGrad.addColorStop(1, "#1a2830");
+      ctx.fillStyle = hullGrad;
+      ctx.beginPath();
+      ctx.moveTo(0, -52);                    // bow tip
+      ctx.quadraticCurveTo(22, -40, 24, -18);
+      ctx.lineTo(24, 32);
+      ctx.quadraticCurveTo(20, 40, 12, 42);
+      ctx.lineTo(-12, 42);
+      ctx.quadraticCurveTo(-20, 40, -24, 32);
+      ctx.lineTo(-24, -18);
+      ctx.quadraticCurveTo(-22, -40, 0, -52);
+      ctx.closePath();
+      ctx.fill();
+
+      // Waterline stripe (contrasting band)
+      ctx.strokeStyle = "#c84820";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(-23, 18);
+      ctx.lineTo(23, 18);
+      ctx.stroke();
+
+      // Boot topping (anti-fouling red below waterline strip)
+      ctx.fillStyle = "#9a3010";
+      ctx.beginPath();
+      ctx.moveTo(-24, 20);
+      ctx.lineTo(24, 20);
+      ctx.lineTo(22, 36);
+      ctx.quadraticCurveTo(18, 42, 12, 42);
+      ctx.lineTo(-12, 42);
+      ctx.quadraticCurveTo(-18, 42, -22, 36);
+      ctx.closePath();
+      ctx.fill();
+
+      // Deck surface
+      ctx.fillStyle = "#3a4a38";
+      ctx.beginPath();
+      ctx.moveTo(0, -48);
+      ctx.quadraticCurveTo(18, -38, 20, -18);
+      ctx.lineTo(20, 30);
+      ctx.quadraticCurveTo(16, 38, 10, 40);
+      ctx.lineTo(-10, 40);
+      ctx.quadraticCurveTo(-16, 38, -20, 30);
+      ctx.lineTo(-20, -18);
+      ctx.quadraticCurveTo(-18, -38, 0, -48);
+      ctx.closePath();
+      ctx.fill();
+
+      // Deck rail (thin line on both sides)
+      ctx.strokeStyle = "rgba(200,190,160,0.3)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-19, -16); ctx.lineTo(-19, 28);
+      ctx.moveTo( 19, -16); ctx.lineTo( 19, 28);
+      ctx.stroke();
+
+      // Cargo holds (3 hatches)
+      const hatchPositions = [-30, -8, 14];
+      hatchPositions.forEach((hy) => {
+        // Hatch coaming (raised lip)
+        ctx.fillStyle = "#2a3828";
+        ctx.fillRect(-13, hy - 1, 26, 15);
+        // Hatch cover
+        const hatchGrad = ctx.createLinearGradient(-12, hy, 12, hy + 13);
+        hatchGrad.addColorStop(0, "#3e5040");
+        hatchGrad.addColorStop(1, "#2e3c30");
+        ctx.fillStyle = hatchGrad;
+        ctx.fillRect(-12, hy, 24, 13);
+        // Hatch panel lines
+        ctx.strokeStyle = "rgba(100,120,100,0.5)";
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(0, hy); ctx.lineTo(0, hy + 13);
+        ctx.moveTo(-12, hy + 6); ctx.lineTo(12, hy + 6);
+        ctx.stroke();
+      });
+
+      // Deck cranes (two boom cranes, port & starboard)
+      [[-17, -12], [17, -12], [-17, 10], [17, 10]].forEach(([cx2, cy2]) => {
+        ctx.fillStyle = "#f0c830";
+        ctx.beginPath();
+        ctx.arc(cx2, cy2, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#e0b820";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(cx2, cy2);
+        ctx.lineTo(cx2 > 0 ? cx2 + 7 : cx2 - 7, cy2 - 8);
+        ctx.stroke();
+      });
+
+      // Bridge superstructure (aft, toward stern)
+      const bridgeGrad = ctx.createLinearGradient(-10, 22, 10, 38);
+      bridgeGrad.addColorStop(0, "#d8d0c4");
+      bridgeGrad.addColorStop(1, "#b0a898");
+      ctx.fillStyle = bridgeGrad;
+      ctx.strokeStyle = "#6a6050";
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.roundRect(-10, 22, 20, 16, 1);
+      ctx.fill(); ctx.stroke();
+
+      // Bridge windows row
+      ctx.fillStyle = "#1a2838";
+      ctx.fillRect(-8, 24, 16, 5);
+      ctx.fillStyle = "rgba(120,180,220,0.5)";
+      for (let wi = 0; wi < 4; wi++) {
+        ctx.fillRect(-7 + wi * 4, 24.5, 2.5, 3.8);
+      }
+
+      // Bridge roof
+      ctx.fillStyle = "#c0b8a8";
+      ctx.fillRect(-11, 21, 22, 2);
+
+      // Funnel / smokestack (aft of bridge)
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillRect(-4, 32, 8, 10);
+      ctx.fillStyle = "#282828";
+      ctx.fillRect(-3, 24, 6, 8);
+      // Funnel band (company colors: yellow)
+      ctx.fillStyle = "#e8c030";
+      ctx.fillRect(-4, 33, 8, 2.5);
+
+      // Foremast (bow area)
+      ctx.strokeStyle = "#5a5040";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -44);
+      ctx.lineTo(0, -28);
+      ctx.stroke();
+      // Yardarm
+      ctx.beginPath();
+      ctx.moveTo(-8, -38);
+      ctx.lineTo(8, -38);
+      ctx.stroke();
+
+      // Navigation lights
+      ctx.fillStyle = "#ff4040"; // port (red)
+      ctx.beginPath(); ctx.arc(-20, -10, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#40ff80"; // starboard (green)
+      ctx.beginPath(); ctx.arc(20, -10, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#ffff80"; // masthead white
+      ctx.beginPath(); ctx.arc(0, -44, 2, 0, Math.PI * 2); ctx.fill();
+
+      // Bow anchor chain (subtle)
+      ctx.strokeStyle = "rgba(180,170,140,0.35)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath();
+      ctx.moveTo(-10, -44); ctx.lineTo(-10, -30);
+      ctx.moveTo( 10, -44); ctx.lineTo( 10, -30);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.restore();
+
+      // Label above ship
+      ctx.fillStyle = "rgba(255,230,120,0.85)";
+      ctx.font = "bold 9px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("CARGO SHIP", esx, esy - 62);
+    }
+  }
   ls.fishers.forEach((f) => drawShip(f.x, f.y, f.heading, 13, 5, "#6a5030", "#8a7050", "", f.speed, f.sinkT, true));
   ls.traffic.forEach((t) => drawShip(t.x, t.y, t.heading, 22, 9, "#4a5868", "#5a6878", "", t.speed, t.sinkT, true));
 
@@ -487,6 +680,21 @@ export function render(ctx: CanvasRenderingContext2D, ls: LocalState, weather: W
   ctx.restore();
   ctx.restore();
 
+  // Tow line from tug stern to escort bow
+  if (!ls.escort.sunk) {
+    const { x: esx, y: esy } = toS(ls.escort.x, ls.escort.y);
+    const towDist = Math.sqrt((ls.tug.x - ls.escort.x) ** 2 + (ls.tug.y - ls.escort.y) ** 2);
+    const towAlpha = Math.max(0.15, Math.min(0.8, 1 - towDist / 300));
+    ctx.setLineDash([5, 3]);
+    ctx.strokeStyle = `rgba(200,180,120,${towAlpha})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(esx, esy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
   // Distance line
   const { x: csx, y: csy } = toS(ls.cargo.x, ls.cargo.y);
   const dist = Math.sqrt((ls.tug.x - ls.cargo.x) ** 2 + (ls.tug.y - ls.cargo.y) ** 2);
@@ -536,6 +744,75 @@ export function render(ctx: CanvasRenderingContext2D, ls: LocalState, weather: W
       ctx.fillStyle = `rgba(160,180,190,${w.fog * 0.28})`;
       ctx.fillRect(0, 0, CW, CH);
     }
+  }
+
+  // ── Collision particles ──────────────────────────────────────────────
+  for (const p of ls.collisionParticles) {
+    const { x: px, y: py } = toS(p.x, p.y);
+    if (px < -60 || px > CW + 60 || py < -60 || py > CH + 60) continue;
+    const t = p.life;
+    ctx.save();
+    if (p.type === "splash") {
+      // White/blue water droplet — shrinks and fades
+      const radius = p.r * (1 - t * 0.6);
+      ctx.globalAlpha = Math.max(0, 1 - t * 1.1);
+      const sg = ctx.createRadialGradient(px, py, 0, px, py, radius);
+      sg.addColorStop(0, "rgba(220,240,255,1)");
+      sg.addColorStop(1, "rgba(120,200,255,0)");
+      ctx.fillStyle = sg;
+      ctx.beginPath();
+      ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (p.type === "foam") {
+      // Expanding ring that fades
+      const radius = p.r + t * 55;
+      ctx.globalAlpha = Math.max(0, (1 - t) * 0.7);
+      ctx.strokeStyle = "rgba(200,230,255,0.9)";
+      ctx.lineWidth = Math.max(0.5, 3 * (1 - t));
+      ctx.beginPath();
+      ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      // Inner fill
+      ctx.globalAlpha *= 0.15;
+      ctx.fillStyle = "rgba(200,230,255,1)";
+      ctx.beginPath();
+      ctx.arc(px, py, radius, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // Debris chunk — brown/gray, tumbles and fades
+      ctx.globalAlpha = Math.max(0, 1 - t * 0.9);
+      ctx.fillStyle = t < 0.4 ? "#8a7050" : "#6a5838";
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(t * Math.PI * 4 + p.id * 0.8);
+      const s = p.r * (1 - t * 0.5);
+      ctx.fillRect(-s * 0.7, -s * 0.4, s * 1.4, s * 0.8);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // ── Screen flash (red on collision) ─────────────────────────────────
+  if (ls.screenFlash > 0) {
+    // end the shake translate before drawing the full-screen overlay
+    ctx.restore();
+    ctx.fillStyle = `rgba(255,60,30,${ls.screenFlash * 0.38})`;
+    ctx.fillRect(0, 0, CW, CH);
+    // Vignette pulse
+    const vg = ctx.createRadialGradient(CW / 2, CH / 2, CH * 0.1, CW / 2, CH / 2, CH * 0.85);
+    vg.addColorStop(0, "rgba(255,0,0,0)");
+    vg.addColorStop(1, `rgba(200,0,0,${ls.screenFlash * 0.55})`);
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, CW, CH);
+    // "COLLISION" text
+    if (ls.screenFlash > 0.5) {
+      ctx.fillStyle = `rgba(255,220,200,${(ls.screenFlash - 0.5) * 2})`;
+      ctx.font = "bold 22px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("COLLISION", CW / 2, CH / 2 - 10);
+    }
+  } else {
+    ctx.restore(); // end the shake translate
   }
 
   // Zone badge

@@ -77,6 +77,21 @@ export type LocalVessel = {
   sinkT?: number;
 };
 
+/** Collision splash / debris particle. */
+export type CollisionParticle = {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  /** 0 = just born, 1 = dead. */
+  life: number;
+  /** life units per second. */
+  decay: number;
+  r: number;
+  type: "splash" | "foam" | "debris";
+};
+
 /** Falling cherry-blossom pickup (bonus score). */
 export type CherryFlower = {
   id: number;
@@ -89,6 +104,7 @@ export type CherryFlower = {
 
 export type LocalState = {
   tug: LocalVessel & { rudder: number };
+  escort: LocalVessel;
   cargo: LocalVessel;
   ferry: LocalVessel;
   fishers: LocalVessel[];
@@ -98,5 +114,8 @@ export type LocalState = {
   zone: string;
   time: number;
   cherryFlowers: CherryFlower[];
+  collisionParticles: CollisionParticle[];
+  /** 0–1 red flash intensity after collision. */
+  screenFlash: number;
 };
 

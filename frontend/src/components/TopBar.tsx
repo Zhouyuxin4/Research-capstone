@@ -11,13 +11,15 @@ type Props = {
   scenario: string;
   weather: WeatherKey;
   score: number;
+  fpv: boolean;
   onScenario: (key: string) => void;
   onWeather: (w: WeatherKey) => void;
   onReplay: () => void;
+  onToggleFpv: () => void;
 };
 
 /** View: top toolbar (scenario, weather, score, replay). */
-export function TopBar({ scenario, weather, score, onScenario, onWeather, onReplay }: Props) {
+export function TopBar({ scenario, weather, score, fpv, onScenario, onWeather, onReplay, onToggleFpv }: Props) {
   return (
     <div className="panel topBar">
       <div className="pillRow">
@@ -53,6 +55,14 @@ export function TopBar({ scenario, weather, score, onScenario, onWeather, onRepl
             {score}
           </div>
         </div>
+        <button
+          type="button"
+          onClick={onToggleFpv}
+          className={`pillBtn ${fpv ? "pillBtnActive" : ""}`}
+          title="Toggle first-person bridge view (V)"
+        >
+          {fpv ? "Map" : "Bridge"}
+        </button>
         <button type="button" onClick={onReplay} className="pillBtn" title="Replay race (same scenario)">
           Replay
         </button>

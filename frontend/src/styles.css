@@ -1,0 +1,115 @@
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(1200px 600px at 50% 0%, #1a120b 0%, #060402 55%, #040302 100%);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  color: rgba(255, 255, 255, 0.86);
+}
+
+#root {
+  min-height: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.appShell {
+  width: min(980px, 100%);
+  padding: 18px 14px 26px;
+  display: grid;
+  gap: 12px;
+}
+
+.panel {
+  background: rgba(10, 6, 2, 0.78);
+  border: 1px solid rgba(150, 110, 60, 0.22);
+  border-radius: 12px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+}
+
+.topBar {
+  padding: 10px 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.pillRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pillBtn {
+  font-size: 11px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid rgba(150, 110, 60, 0.28);
+  background: rgba(0, 0, 0, 0.25);
+  color: rgba(255, 255, 255, 0.65);
+}
+.pillBtnActive {
+  border-color: rgba(220, 160, 90, 0.55);
+  background: rgba(160, 96, 28, 0.28);
+  color: rgba(255, 225, 170, 0.9);
+}
+
+.statPills {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.stat {
+  min-width: 70px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(150, 110, 60, 0.18);
+  text-align: center;
+}
+.statLabel {
+  font-size: 10px;
+  color: rgba(255, 210, 150, 0.35);
+  letter-spacing: 0.08em;
+}
+.statValue {
+  font-size: 18px;
+  font-weight: 800;
+  margin-top: 2px;
+}
+
+.canvasWrap {
+  position: relative;
+  padding: 10px;
+}
+
+canvas.simCanvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 12px;
+  /* Softer, shorter drop so it doesn’t read as sitting over the helm below */
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.42);
+  outline: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+@media (max-width: 760px) {
+  .topBar {
+    grid-template-columns: 1fr;
+  }
+  .statPills {
+    justify-content: flex-start;
+  }
+}
+
